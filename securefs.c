@@ -15,23 +15,23 @@
 #include <dirent.h>
 #include <termios.h>
 
-unsigned char aes_key[32];  // 256 bit key
+unsigned char aes_key[32];  // 256 bit AES key (derived from password)
 
-#define KEY_SIZE 32  // 32 byte for AES-256
-#define IV_SIZE 16   // AES block size
+#define KEY_SIZE 32  // 32 bytes for AES-256 key
+#define IV_SIZE 16   // AES block size (16 bytes)
 
+// Construct the full backend file path by appending ".sec" extension
 void get_backend_path(const char *path, char *fullpath) {
     snprintf(fullpath, 512, "%s%s.sec", BACKEND_DIR, path);
 }
 
+// Encryption function using AES-256-CBC, returns ciphertext length
 int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *ciphertext);
+
+// Decryption function using AES-256-CBC, returns plaintext length
 int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *plaintext);
 
-static unsigned char key[KEY_SIZE] = "01234567890123456789012345678901";
-static unsigned char iv[IV_SIZE] = "0123456789012345";
-
-static const char *backing_file = "/tmp/securefs_storage.txt";
-
+// Get file attributes (file or directory info) for FUSE
 static int securefs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi) {
     memset(stbuf, 0, sizeof(struct stat));
 
@@ -53,6 +53,7 @@ static int securefs_getattr(const char *path, struct stat *stbuf, struct fuse_fi
     return 0;
 }
 
+// Open a file (checks existence of backend encrypted file)
 static int securefs_open(const char *path, struct fuse_file_info *fi) {
     char fullpath[512];
     get_backend_path(path, fullpath);
@@ -63,6 +64,7 @@ static int securefs_open(const char *path, struct fuse_file_info *fi) {
     return 0;
 }
 
+// Read data from the encrypted backend file and decrypt it
 static int securefs_read(const char *path, char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi) {
     
@@ -83,11 +85,13 @@ static int securefs_read(const char *path, char *buf, size_t size, off_t offset,
     if (offset >= decrypted_len)
         return 0;
 
+    // Copy the requested size from decrypted plaintext, respecting file length
     size_t to_copy = (offset + size > decrypted_len) ? (decrypted_len - offset) : size;
     memcpy(buf, plaintext + offset, to_copy);
     return to_copy;
 }
 
+// Write data to a backend file after encrypting it
 static int securefs_write(const char *path, const char *buf, size_t size,
     off_t offset, struct fuse_file_info *fi) {
     char fullpath[512];
@@ -106,6 +110,7 @@ static int securefs_write(const char *path, const char *buf, size_t size,
     return size;
 }
 
+// Read directory entries from the backend directory and list decrypted file names
 static int securefs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     off_t offset, struct fuse_file_info *fi,
     enum fuse_readdir_flags flags) {
@@ -119,6 +124,7 @@ static int securefs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     filler(buf, ".", NULL, 0, 0);
     filler(buf, "..", NULL, 0, 0);
 
+    // Only show files that end with ".sec" extension (encrypted files)
     while ((de = readdir(dp)) != NULL) {
         if (strstr(de->d_name, ".sec")) {
             char name[256];
@@ -132,6 +138,7 @@ static int securefs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     return 0;
 }
 
+// Create a new empty encrypted backend file
 static int securefs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
     char fullpath[512];
     get_backend_path(path, fullpath);
@@ -144,15 +151,17 @@ static int securefs_create(const char *path, mode_t mode, struct fuse_file_info 
     return 0;
 }
 
+// Delete the backend encrypted file
 static int securefs_unlink(const char *path) {
     char fullpath[512];
     get_backend_path(path, fullpath);
     return unlink(fullpath);
 }
 
+// Encrypt plaintext with AES-256-CBC using derived key and fixed IV
 int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *ciphertext) {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    unsigned char iv[16] = "1234567890123456";
+    unsigned char iv[16] = "1234567890123456"; // Fixed IV (for demonstration only)
 
     int len, ciphertext_len;
 
@@ -167,6 +176,7 @@ int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *cipherte
     return ciphertext_len;
 }
 
+// Decrypt ciphertext with AES-256-CBC using derived key and fixed IV
 int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *plaintext) {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     unsigned char iv[16] = "1234567890123456";
@@ -184,6 +194,7 @@ int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *plaint
     return plaintext_len;
 }
 
+// Define FUSE operaitons
 static struct fuse_operations securefs_oper = {
     .getattr = securefs_getattr,
     .readdir = securefs_readdir,
@@ -194,11 +205,13 @@ static struct fuse_operations securefs_oper = {
     .unlink = securefs_unlink,
 };
 
+// Derive AES key from password using PBKDF2 with a fixed salt
 void get_password_and_derive_key() {
     char password[128];
     printf("Enter your Password: ");
     fflush(stdout);
 
+    // Disable echo for password input
     struct termios oldt, newt;
     tcgetattr(STDIN_FILENO, &oldt);
     newt = oldt;
@@ -208,9 +221,10 @@ void get_password_and_derive_key() {
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     printf("\n");
 
-    password[strcspn(password, "\n")] = 0;
+    password[strcspn(password, "\n")] = 0; // Remove trailing newline
 
-    unsigned char salt[8] = "e0eb3621661ceddd"; //Salt is constant for this project
+    // Fixed salt for key derivation
+    unsigned char salt[8] = "e0eb3621661ceddd";
     if (!PKCS5_PBKDF2_HMAC(password, strlen(password), salt, sizeof(salt),
                            10000, EVP_sha256(), sizeof(aes_key), aes_key)) {
         fprintf(stderr, "PBKDF2 error\n");
@@ -218,6 +232,7 @@ void get_password_and_derive_key() {
     }
 }
 
+// Main entry point: create backend directory if needed, get password, then start FUSE
 int main(int argc, char *argv[]) {
 
     mkdir(BACKEND_DIR, 0700);
