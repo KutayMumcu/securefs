@@ -1,5 +1,5 @@
 #define FUSE_USE_VERSION 31
-#define BACKEND_DIR "/home/kutaymumcu/Project/backend"
+#define BACKEND_DIR "/tmp/securefs_backend"
 #include <fuse3/fuse.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,7 +48,7 @@ static int securefs_getattr(const char *path, struct stat *stbuf, struct fuse_fi
 
     stbuf->st_mode = S_IFREG | 0644;
     stbuf->st_nlink = 1;
-    stbuf->st_size = 1024;  // Opsiyonel: sabit değer
+    stbuf->st_size = 1024;
 
     return 0;
 }
@@ -152,7 +152,7 @@ static int securefs_unlink(const char *path) {
 
 int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *ciphertext) {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    unsigned char iv[16] = "1234567890123456"; // Sabit IV (geliştirilebilir)
+    unsigned char iv[16] = "1234567890123456";
 
     int len, ciphertext_len;
 
@@ -208,9 +208,9 @@ void get_password_and_derive_key() {
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     printf("\n");
 
-    password[strcspn(password, "\n")] = 0;  // delete newline
+    password[strcspn(password, "\n")] = 0;
 
-    unsigned char salt[8] = "salt1234"; // Sabit salt — istersen random yaparız
+    unsigned char salt[8] = "e0eb3621661ceddd"; //Salt is constant for this project
     if (!PKCS5_PBKDF2_HMAC(password, strlen(password), salt, sizeof(salt),
                            10000, EVP_sha256(), sizeof(aes_key), aes_key)) {
         fprintf(stderr, "PBKDF2 error\n");
@@ -227,8 +227,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    get_password_and_derive_key();  // <-- Parola alınıyor
+    get_password_and_derive_key();
 
     return fuse_main(argc, argv, &securefs_oper, NULL);
 }
-
