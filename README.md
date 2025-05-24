@@ -33,6 +33,12 @@ sudo apt install libfuse3-dev libssl-dev
 gcc `pkg-config fuse3 --cflags` securefs.c -o securefs `pkg-config fuse3 --libs` -lcrypto
 ```
 
+or
+
+```bash
+make
+```
+
 ## Usage
 
 1. Create a mount point:
